@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎯 팀 랜덤 배정기 (팀플 전용)</title>
+<style>
+  body {
+    font-family: 'Pretendard', sans-serif;
+    text-align: center;
+    background-color: #f9fafb;
+    margin: 20px;
+    padding-bottom: 40px;
+  }
+
+  h1 {
+    color: #333;
+    margin: 10px 0 20px;
+    font-size: clamp(1.4rem, 2vw, 2rem);
+  }
+
+  select, button {
+    font-size: clamp(1rem, 2vw, 1.2rem);
+    margin: 6px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 10px;
+    background-color: #06c;
+    color: white;
+    cursor: pointer;
+    transition: 0.3s;
+  }
+
+  select {
+    background-color: white;
+    color: #333;
+    border: 1px solid #ccc;
+  }
+
+  button:hover {
+    background-color: #004a99;
+  }
+
+  button:active {
+    transform: scale(0.97);
+  }
+
+  .secondary {
+    background-color: #888;
+  }
+
+  .member-list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 14px;
+    margin-top: 25px;
+  }
+
+  .member-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+    width: clamp(130px, 22%, 180px);
+    padding: 16px;
+    text-align: center;
+    transition: transform 0.2s;
+  }
+
+  .member-card:active {
+    transform: scale(0.98);
+  }
+
+  .name {
+    font-weight: bold;
+    margin-bottom: 8px;
+    font-size: clamp(1rem, 2vw, 1.2rem);
+  }
+
+  .team-result {
+    font-size: clamp(1rem, 2vw, 1.2rem);
+    font-weight: 700;
+    color: #333;
+    margin-top: 10px;
+    min-height: 1.4em;
+  }
+
+  .spinning {
+    animation: spin 0.1s infinite;
+  }
+
+  @keyframes spin {
+    0% {transform: scale(1);}
+    50% {transform: scale(1.1);}
+    100% {transform: scale(1);}
+  }
+
+  .team-section {
+    margin-top: 40px;
+  }
+
+  .team-box {
+    display: inline-block;
+    margin: 8px;
+    padding: 20px;
+    border-radius: 12px;
+    color: white;
+    font-weight: 600;
+    min-width: 160px;
+    vertical-align: top;
+    font-size: clamp(1rem, 2vw, 1.2rem);
+  }
+
+  @media (max-width: 768px) {
+    button, select {
+      width: 90%;
+      margin-top: 8px;
+    }
+    .team-box {
+      display: block;
+      width: 80%;
+      margin: 10px auto;
+    }
+  }
+</style>
+</head>
+<body>
+
+<h1>🎡 팀 랜덤 배정기 (팀플 전용)</h1>
+
+<div>
+  <label for="teamCount" style="font-size:1.1rem;">팀 수 선택:</label>
+  <select id="teamCount">
+    <option value="3">1~3팀</option>
+    <option value="4">1~4팀</option>
+  </select><br>
+  <button onclick="assignAll()">전체 랜덤 배정 🎯</button>
+  <button class="secondary" onclick="resetAll()">초기화 🔄</button>
+</div>
+
+<div id="memberList" class="member-list"></div>
+
+<h2 style="margin-top:40px;">📋 팀별 결과</h2>
+<div id="teamResults" class="team-section"></div>
+
+<script>
+const defaultNames = [
+  "곽연희","김용운","김인중","김정범","김춘화",
+  "나정숙","박동원","박보경","변용환","서규석",
+  "신준호","윤경희","윤영운","윤재근","원수진",
+  "이미순","이재규","정구인","조용근","최만승"
+];
+
+const teamColors = ["#007bff", "#ff4d4f", "#28a745", "#ffc107"];
+let assignedTeams = {};
+
+window.onload = () => {
+  generateList();
+};
+
+function generateList() {
+  const memberList = document.getElementById('memberList');
+  const teamResults = document.getElementById('teamResults');
+  memberList.innerHTML = "";
+  teamResults.innerHTML = "";
+  assignedTeams = {};
+
+  defaultNames.forEach(name => {
+    const card = document.createElement("div");
+    card.className = "member-card";
+
+    const nameDiv = document.createElement("div");
+    nameDiv.className = "name";
+    nameDiv.textContent = name;
+
+    const button = document.createElement("button");
+    button.textContent = "팀 뽑기 🎯";
+    button.style.width = "100%";
+    button.onclick = () => assignOne(card, button, name);
+
+    const result = document.createElement("div");
+    result.className = "team-result";
+    result.textContent = "아직 배정 전";
+
+    card.appendChild(nameDiv);
+    card.appendChild(button);
+    card.appendChild(result);
+    memberList.appendChild(card);
+  });
+}
+
+function getBalancedTeams(totalMembers, teamCount) {
+  const membersPerTeam = Math.floor(totalMembers / teamCount);
+  const remainder = totalMembers % teamCount;
+  const balanced = [];
+  for (let i = 1; i <= teamCount; i++) {
+    balanced.push(membersPerTeam + (i <= remainder ? 1 : 0));
+  }
+  return balanced;
+}
+
+function assignOne(card, button, name) {
+  const teamCount = parseInt(document.getElementById('teamCount').value);
+  const resultDiv = card.querySelector(".team-result");
+  const allNames = defaultNames;
+
+  if (Object.keys(assignedTeams).length === 0) {
+    const limits = getBalancedTeams(allNames.length, teamCount);
+    assignedTeams = Object.fromEntries(limits.map((limit, i) => [i + 1, { limit, members: [] }]));
+  }
+
+  if (resultDiv.textContent.includes("팀")) {
+    alert(`${name}님은 이미 배정되었습니다.`);
+    return;
+  }
+
+  resultDiv.classList.add("spinning");
+  button.disabled = true;
+
+  const spinInterval = setInterval(() => {
+    const randomTeam = Math.floor(Math.random() * teamCount) + 1;
+    resultDiv.textContent = `팀 ${randomTeam}`;
+  }, 80);
+
+  setTimeout(() => {
+    clearInterval(spinInterval);
+    const availableTeams = Object.entries(assignedTeams)
+      .filter(([_, data]) => data.members.length < data.limit)
+      .map(([num]) => parseInt(num));
+
+    const finalTeam = availableTeams[Math.floor(Math.random() * availableTeams.length)];
+    assignedTeams[finalTeam].members.push(name);
+
+    resultDiv.textContent = `🎉 팀 ${finalTeam} 확정!`;
+    resultDiv.style.color = teamColors[finalTeam - 1];
+    resultDiv.classList.remove("spinning");
+
+    updateTeamResults();
+  }, 2500);
+}
+
+function assignAll() {
+  const teamCount = parseInt(document.getElementById('teamCount').value);
+  const members = Array.from(document.querySelectorAll(".member-card"));
+  const allNames = defaultNames;
+
+  const limits = getBalancedTeams(allNames.length, teamCount);
+  assignedTeams = Object.fromEntries(limits.map((limit, i) => [i + 1, { limit, members: [] }]));
+
+  const shuffled = [...allNames].sort(() => Math.random() - 0.5);
+  let index = 0;
+
+  for (let team = 1; team <= teamCount; team++) {
+    for (let i = 0; i < limits[team - 1]; i++) {
+      assignedTeams[team].members.push(shuffled[index++]);
+    }
+  }
+
+  members.forEach((card) => {
+    const resultDiv = card.querySelector(".team-result");
+    const button = card.querySelector("button");
+    const name = card.querySelector(".name").textContent;
+    button.disabled = true;
+    resultDiv.classList.add("spinning");
+
+    setTimeout(() => {
+      resultDiv.classList.remove("spinning");
+      const teamNum = Object.entries(assignedTeams).find(([_, data]) => data.members.includes(name))[0];
+      resultDiv.textContent = `🎉 팀 ${teamNum} 확정!`;
+      resultDiv.style.color = teamColors[teamNum - 1];
+      updateTeamResults();
+    }, 800 + Math.random() * 1000);
+  });
+}
+
+function updateTeamResults() {
+  const teamResults = document.getElementById('teamResults');
+  teamResults.innerHTML = "";
+
+  Object.entries(assignedTeams).forEach(([num, data]) => {
+    const div = document.createElement("div");
+    div.className = "team-box";
+    div.style.backgroundColor = teamColors[num - 1];
+    div.innerHTML = `<strong>팀 ${num}</strong><br>${data.members.join("<br>") || "—"}`;
+    teamResults.appendChild(div);
+  });
+}
+
+function resetAll() {
+  if (confirm("모든 팀 배정을 초기화하시겠습니까?")) {
+    assignedTeams = {};
+    document.getElementById("teamResults").innerHTML = "";
+    generateList();
+  }
+}
+</script>
+
+</body>
+</html>
