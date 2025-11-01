@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>팀플회원명부</title>
+<script src="https://cdn.jsdelivr.net/npm/korean-lunar-calendar/dist/korean-lunar-calendar.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {--toss-blue:#3182f6;--toss-blue-hover:#1b64da;--toss-gray:#f9fafb;--toss-dark:#191f28;--toss-sub:#4e5968;--white:#fff;}
+  *{box-sizing:border-box;font-family:"Pretendard","Noto Sans KR",sans-serif;}
+  body{background:var(--toss-gray);color:var(--toss-dark);margin:0;padding:20px;display:flex;flex-direction:column;align-items:center;}
+  h1{font-size:1.6em;font-weight:700;margin:20px 0;}
+  .controls,.add-form,.backup-area{width:100%;max-width:1100px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;margin-bottom:10px;}
+  input,select,button{border:1px solid #ccc;border-radius:8px;padding:8px 10px;font-size:0.9em;}
+  input:focus,select:focus{outline:1.5px solid var(--toss-blue);}
+  button{background:var(--toss-blue);color:white;border:none;cursor:pointer;transition:0.2s;}
+  button:hover{background:var(--toss-blue-hover);}
+  .table-wrap{width:100%;max-width:1100px;overflow-x:auto;background:var(--white);border-radius:18px;box-shadow:0 8px 25px rgba(0,0,0,0.08);}
+  table{width:100%;min-width:800px;border-collapse:collapse;}
+  thead{background:var(--toss-blue);color:white;}
+  th,td{padding:10px 8px;text-align:center;font-size:0.9em;white-space:nowrap;}
+  tbody tr:nth-child(even){background:#f6f8fb;}
+  tr.highlight-row{background:var(--toss-blue)!important;color:white;font-weight:700;}
+  .highlight{color:var(--toss-blue);font-weight:600;}
+  tr.highlight-row .highlight{color:#fff;}
+  select.note{border-radius:6px;padding:4px 6px;border:1px solid #ccc;background:#fff;}
+  .dday{font-weight:600;}
+  .dday.soon{color:#d62828;}.dday.today{color:#00b894;}.dday.after{color:#747d8c;}
+  footer{margin-top:25px;color:var(--toss-sub);font-size:0.85em;text-align:center;}
+  .save-status{margin-top:10px;font-size:0.85em;color:var(--toss-sub);}
+  .remove-btn{color:#ff4d4d;background:none;border:none;cursor:pointer;font-weight:bold;}
+  .remove-btn:hover{text-decoration:underline;}
+  @media(max-width:768px){body{padding:10px;}table{font-size:0.85em;}th,td{padding:8px 6px;}}
+</style>
+</head>
+<body>
+
+<h1 id="title">🎂 팀플회원명부</h1>
+
+<!-- 상단 컨트롤 -->
+<div class="controls">
+  <input type="text" id="searchInput" placeholder="🔍 이름 검색..." onkeyup="filterTable()">
+  <select id="monthFilter" onchange="filterTable()">
+    <option value="">📅 전체 월</option>
+    <option value="1">1월</option><option value="2">2월</option><option value="3">3월</option>
+    <option value="4">4월</option><option value="5">5월</option><option value="6">6월</option>
+    <option value="7">7월</option><option value="8">8월</option><option value="9">9월</option>
+    <option value="10">10월</option><option value="11">11월</option><option value="12">12월</option>
+  </select>
+  <button onclick="exportExcel()">📤 엑셀로 내보내기</button>
+</div>
+
+<!-- 회원 추가 -->
+<div class="add-form">
+  <input type="text" id="newName" placeholder="이름">
+  <input type="text" id="newPhone" placeholder="전화번호 (010-XXXX-XXXX)">
+  <input type="text" id="newBirth" placeholder="생년월일 (예: 1970-04-08)">
+  <select id="newType"><option value="양력">양력</option><option value="음력">음력</option></select>
+  <input type="text" id="newAddr" placeholder="주소">
+  <button onclick="addMember()">➕ 회원 추가</button>
+</div>
+
+<!-- 백업/복원 -->
+<div class="backup-area">
+  <button onclick="backupData()">💾 데이터 백업(JSON)</button>
+  <input type="file" id="restoreFile" accept=".json" onchange="restoreData(event)">
+</div>
+
+<!-- 테이블 -->
+<div class="table-wrap">
+  <table id="memberTable">
+    <thead>
+      <tr>
+        <th>회원명</th><th>전화번호</th><th>생년월일</th>
+        <th>올해 양력 생일</th><th>D-Day</th><th>주소</th><th>비고</th><th>삭제</th>
+      </tr>
+    </thead>
+    <tbody id="memberBody"></tbody>
+  </table>
+</div>
+
+<div class="save-status" id="saveStatus">💾 변경사항은 자동저장 됩니다.</div>
+<footer>※ 이번 달 생일자는 파란색으로 강조됩니다.<br>※ 새해에는 연도가 자동으로 갱신됩니다.</footer>
+
+<script>
+  const calendar=new KoreanLunarCalendar();
+  const today=new Date(),thisYear=today.getFullYear(),thisMonth=today.getMonth()+1;
+  document.getElementById("title").innerText=`🎂 ${thisYear}년 팀플회원명부`;
+
+  // 기본 회원 목록
+  const defaultMembers=[{name:"곽연희",phone:"010-7566-5332",lunar:[4,25,false],solarOrigin:"1974-04-25",addr:"와동 803-4 삼신맨션 202호",note:""},
+    {name:"김용운",phone:"010-5706-2349",lunar:[5,20,false],solarOrigin:"1967-05-20",addr:"와동 761-5, 202호",note:""},
+    {name:"김인중",phone:"010-2331-1614",lunar:[8,6,false],solarOrigin:"1964-08-06",addr:"단원구 와동",note:""},
+    {name:"김정범",phone:"010-5880-4122",lunar:"양력",solarOrigin:"1995-05-11",addr:"단원구 선삼로6길 66",note:""},
+    {name:"김춘화",phone:"010-6277-5628",lunar:[4,8,false],solarOrigin:"1970-04-08",addr:"부부로5길 2, 은우하이츠빌 A동 401호",note:""},
+    {name:"나정숙",phone:"010-5049-3681",lunar:[11,25,false],solarOrigin:"1975-11-25",addr:"와동 97-2 희망빌라 302호",note:""},
+    {name:"박동원",phone:"010-9563-3478",lunar:"양력",solarOrigin:"1967-01-25",addr:"와동 775-8, 103호",note:""},
+    {name:"박보경",phone:"010-7331-8746",lunar:"양력",solarOrigin:"1967-01-16",addr:"선부로 166 공작한양 113동 206호",note:""},
+    {name:"변용환",phone:"010-4722-3365",lunar:[9,3,false],solarOrigin:"1976-09-03",addr:"와동 788, 401호",note:""},
+    {name:"서규석",phone:"010-3652-8929",lunar:[4,3,false],solarOrigin:"1968-04-03",addr:"단원구 와동",note:""},
+    {name:"신준호",phone:"010-9164-2404",lunar:[3,19,false],solarOrigin:"1974-03-19",addr:"석수로 138, 메트로푸르지오 106동 102호",note:""},
+    {name:"원수진",phone:"010-8858-1927",lunar:[11,10,false],solarOrigin:"1978-11-10",addr:"와동공원로4길 36, 위즈덤하우스 A동 401호",note:""},
+    {name:"윤경희",phone:"010-2822-5397",lunar:[6,28,false],solarOrigin:"1968-06-28",addr:"석수로 138, 메트로푸르지오 109동 104호",note:""},
+    {name:"윤영운",phone:"010-3686-7502",lunar:[5,3,false],solarOrigin:"1971-05-03",addr:"인천 미추홀구 인주대로 148, 효성해링턴타워 101동 1711호",note:""},
+    {name:"윤재근",phone:"010-6235-9099",lunar:[10,7,false],solarOrigin:"1963-10-07",addr:"시흥시 거모동 유호아파트 103동 701호",note:""},
+    {name:"이미순",phone:"010-9426-2668",lunar:[6,17,false],solarOrigin:"1976-06-17",addr:"와동 753-11, 302호",note:""},
+    {name:"이재규",phone:"010-5182-1533",lunar:"양력",solarOrigin:"1987-11-24",addr:"광덕산1로 19, 해오름아파트 1203호",note:"총무"},
+    {name:"정구인",phone:"010-9076-1032",lunar:[3,13,false],solarOrigin:"1971-03-13",addr:"와동 803-4 삼신맨션 202호",note:""},
+    {name:"조용근",phone:"010-4856-2668",lunar:[7,9,false],solarOrigin:"1969-07-09",addr:"와동 753-11, 302호",note:"회장"},
+    {name:"최만승",phone:"010-2282-0228",lunar:[9,18,false],solarOrigin:"1964-09-18",addr:"달미로 129",note:""}];
+
+  let members=JSON.parse(localStorage.getItem("team_members")||"null")||defaultMembers;
+  const savedNotes=JSON.parse(localStorage.getItem("team_notes")||"{}");
+  members.forEach(m=>{if(savedNotes[m.name])m.note=savedNotes[m.name];});
+
+  const tbody=document.getElementById("memberBody");
+
+  function renderTable(){
+    tbody.innerHTML="";
+    members.forEach((mem,idx)=>{
+      let thisYearSolar="";
+      if(mem.lunar==="양력"){const[,m,d]=mem.solarOrigin.split("-");thisYearSolar=`${thisYear}-${m}-${d}`;}
+      else{const[m,d,leap]=mem.lunar;calendar.setLunarDate(thisYear,m,d,leap);
+        const s=calendar.getSolarCalendar();
+        thisYearSolar=`${s.year}-${String(s.month).padStart(2,"0")}-${String(s.day).padStart(2,"0")}`;}
+      const birth=new Date(thisYearSolar);
+      let diff=Math.ceil((birth-today)/(1000*60*60*24)),txt="",cls="";
+      if(diff===0){txt="🎉 오늘";cls="today";}else if(diff>0){txt=`D-${diff}`;cls=diff<=7?"soon":"";}else{txt=`D+${Math.abs(diff)}`;cls="after";}
+      const monthNum=parseInt(thisYearSolar.split("-")[1]);
+      const tr=document.createElement("tr");
+      if(monthNum===thisMonth)tr.classList.add("highlight-row");
+      const noteSel=`<select class="note" onchange="updateNote('${mem.name}',this.value)">
+        <option value=""></option><option value="총무"${mem.note==="총무"?"selected":""}>총무</option>
+        <option value="회장"${mem.note==="회장"?"selected":""}>회장</option></select>`;
+      tr.innerHTML=`<td>${mem.name}</td><td>${mem.phone}</td><td>${mem.solarOrigin}</td>
+        <td class="highlight">${thisYearSolar}</td><td class="dday ${cls}">${txt}</td><td>${mem.addr}</td>
+        <td>${noteSel}</td><td><button class="remove-btn" onclick="removeMember(${idx})">✖</button></td>`;
+      tbody.appendChild(tr);
+    });
+  }
+  renderTable();
+
+  function updateNote(name,val){
+    const s=document.getElementById("saveStatus");
+    const notes=JSON.parse(localStorage.getItem("team_notes")||"{}");
+    notes[name]=val;localStorage.setItem("team_notes",JSON.stringify(notes));
+    s.textContent=`✅ ${name} 님의 비고 저장됨`;s.style.color="green";
+    setTimeout(()=>{s.textContent="💾 변경사항은 자동저장 됩니다..";s.style.color="#4e5968";},2000);
+  }
+
+  function exportExcel(){
+    const wb=XLSX.utils.table_to_book(document.getElementById("memberTable"),{sheet:"팀플회원명부"});
+    XLSX.writeFile(wb,`${thisYear}_팀플회원명부.xlsx`);
+  }
+
+  function filterTable(){
+    const search=document.getElementById("searchInput").value.trim();
+    const month=document.getElementById("monthFilter").value;
+    document.querySelectorAll("#memberBody tr").forEach(r=>{
+      const name=r.querySelector("td:first-child").textContent.trim();
+      const dateText=r.querySelector("td:nth-child(4)").textContent.trim();
+      let rowMonth="";if(/^\d{4}-\d{2}-\d{2}$/.test(dateText))rowMonth=String(parseInt(dateText.split("-")[1],10));
+      r.style.display=((!search||name.includes(search))&&(!month||rowMonth===month))?"":"none";
+    });
+  }
+
+  function addMember(){
+    const name=newName.value.trim(),phone=newPhone.value.trim(),birth=newBirth.value.trim();
+    const type=newType.value,addr=newAddr.value.trim();
+    if(!name||!phone||!birth){alert("이름, 전화번호, 생년월일은 필수입니다!");return;}
+    let lunar=type==="양력"?"양력":(()=>{const[,m,d]=birth.split("-");return [parseInt(m),parseInt(d),false];})();
+    members.push({name,phone,lunar,solarOrigin:birth,addr,note:""});
+    localStorage.setItem("team_members",JSON.stringify(members));
+    renderTable();alert(`✅ ${name} 님이 추가되었습니다!`);
+    document.querySelectorAll(".add-form input").forEach(i=>i.value="");
+  }
+
+  function removeMember(i){
+    if(confirm(`정말 ${members[i].name} 회원을 삭제할까요?`)){
+      members.splice(i,1);localStorage.setItem("team_members",JSON.stringify(members));renderTable();
+    }
+  }
+
+  // 💾 데이터 백업 (JSON 다운로드)
+  function backupData(){
+    const blob=new Blob([JSON.stringify(members,null,2)],{type:"application/json"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=`teampl_backup_${thisYear}.json`;
+    a.click();
+  }
+
+  // ♻ 데이터 복원
+  function restoreData(e){
+    const file=e.target.files[0];
+    if(!file)return;
+    const reader=new FileReader();
+    reader.onload=evt=>{
+      try{
+        members=JSON.parse(evt.target.result);
+        localStorage.setItem("team_members",JSON.stringify(members));
+        renderTable();
+        alert("✅ 데이터 복원 완료!");
+      }catch(err){alert("⚠ 복원 실패: 올바른 JSON 파일인지 확인하세요.");}
+    };
+    reader.readAsText(file);
+  }
+</script>
+</body>
+</html>
